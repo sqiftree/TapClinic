@@ -3,6 +3,10 @@
 
   const TC = (global.TapClinic = global.TapClinic || {});
   const STORAGE_KEY = 'tapclinic_hci_sessions_v1';
+  const CLOUD_URL_OVERRIDE_KEY = 'tapclinic_cloud_url_v1';
+
+  // Isi dengan Web App URL (/exec) dari Google Apps Script agar semua HP otomatis kirim ke Sheets tim
+  const CLOUD_SYNC_URL = '';
 
   const CSV_COLUMNS = [
     'participant_id',
@@ -163,10 +167,58 @@
     }
   };
 
+  const CloudSync = {
+    getUrl() {
+      const builtIn = String(CLOUD_SYNC_URL || '').trim();
+      if (builtIn) return builtIn;
+      try {
+        return String(global.localStorage.getItem(CLOUD_URL_OVERRIDE_KEY) || '').trim();
+      } catch (_e) {
+        return '';
+      }
+    },
+
+    setOverrideUrl(url) {
+      const clean = String(url || '').trim();
+      try {
+        if (!clean) {
+          global.localStorage.removeItem(CLOUD_URL_OVERRIDE_KEY);
+        } else {
+          global.localStorage.setItem(CLOUD_URL_OVERRIDE_KEY, clean);
+        }
+      } catch (_e) {
+        // ignore
+      }
+    },
+
+    isConfigured() {
+      return Boolean(this.getUrl());
+    },
+
+    async sendSession(record) {
+      const url = this.getUrl();
+      if (!url) {
+        return { status: 'not_configured' };
+      }
+      try {
+        await global.fetch(url, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(record)
+        });
+        return { status: 'sent' };
+      } catch (err) {
+        return { status: 'failed', error: String(err) };
+      }
+    }
+  };
+
   TC.Telemetry = {
     CSV_COLUMNS,
     TaskTracker,
     calculateSUS,
-    DatasetStore
+    DatasetStore,
+    CloudSync
   };
 })(window);

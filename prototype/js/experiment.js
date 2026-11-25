@@ -53,6 +53,7 @@
       preference: 'B',
       feedback: '',
       saved: false,
+      syncStatus: 'idle', // idle | sending | sent | not_configured | failed
       errorMsg: ''
     };
 
@@ -328,12 +329,39 @@
       };
     }
 
+    async function triggerCloudSync() {
+      if (!state.record || !TC.Telemetry.CloudSync) return;
+      state.syncStatus = 'sending';
+      if (state.stage === 'done') render();
+      const res = await TC.Telemetry.CloudSync.sendSession(state.record);
+      state.syncStatus = res.status;
+      if (state.stage === 'done') render();
+    }
+
     function saveCurrentSession() {
       if (state.saved) return;
       state.record = buildSessionRecord();
       TC.Telemetry.DatasetStore.addSession(state.record);
       state.saved = true;
       if (onDatasetUpdated) onDatasetUpdated();
+      triggerCloudSync();
+    }
+
+    function renderSyncBanner() {
+      if (state.syncStatus === 'sending') {
+        return `<div class="b4-disclaimer" style="margin-bottom:12px">⏳ Mengirim respon ke Spreadsheet tim peneliti…</div>`;
+      }
+      if (state.syncStatus === 'sent') {
+        return `<div class="b4-disclaimer" style="margin-bottom:12px;background:#ecfdf5;border-color:#a7f3d0;color:#065f46">☁️ Respon otomatis terkirim ke Spreadsheet tim peneliti!</div>`;
+      }
+      if (state.syncStatus === 'failed') {
+        return `
+          <div class="b4-disclaimer" style="margin-bottom:12px;background:#fef2f2;border-color:#fecaca;color:#991b1b;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+            <span>⚠️ Gagal mengirim (cek koneksi internet). Data aman tersimpan lokal di HP ini.</span>
+            <button type="button" id="exp-retry-sync" class="btn btn-secondary btn-sm">↻ Kirim Ulang</button>
+          </div>`;
+      }
+      return `<div class="b4-disclaimer" style="margin-bottom:12px">💾 Tersimpan lokal di perangkat ini (URL Google Sheets tim belum dihubungkan).</div>`;
     }
 
     function renderDone() {
@@ -343,10 +371,12 @@
         <div class="card va-card">
           <h2 style="margin-top:0">✓ Sesi Eksperimen Selesai (${r.participant_id})</h2>
           <p style="color:var(--ink-muted);font-size:0.9rem;margin-top:0">
-            Terima kasih atas partisipasi Anda! Data sesi ini telah tersimpan secara lokal di perangkat (urutan <strong>${r.order}</strong>).${
+            Terima kasih atas partisipasi Anda! Data sesi ini telah direkam (urutan <strong>${r.order}</strong>).${
               isUnlocked ? '' : ' Silakan kembalikan perangkat kepada tim peneliti.'
             }
           </p>
+
+          ${renderSyncBanner()}
 
           <div class="metrics-compare-grid">
             <div class="metric-box">
@@ -375,6 +405,8 @@
           </div>
         </div>`;
 
+      const retryBtn = container.querySelector('#exp-retry-sync');
+      if (retryBtn) retryBtn.addEventListener('click', triggerCloudSync);
       const dlCsv = container.querySelector('#exp-dl-csv');
       const dlJson = container.querySelector('#exp-dl-json');
       if (dlCsv) dlCsv.addEventListener('click', () => TC.Telemetry.DatasetStore.downloadCSV());

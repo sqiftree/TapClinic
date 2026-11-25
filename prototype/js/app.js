@@ -162,18 +162,39 @@
       }
 
       const rows = TC.Telemetry.DatasetStore.getAll();
+      const cloudConfigured = TC.Telemetry.CloudSync && TC.Telemetry.CloudSync.isConfigured();
+      const cloudUrl = TC.Telemetry.CloudSync ? TC.Telemetry.CloudSync.getUrl() : '';
+
+      const cloudSectionHtml = `
+        <div style="background:var(--surface-soft);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:12px;font-size:0.84rem">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+            <span>${cloudConfigured ? '☁️ <strong>Google Sheets Sync Aktif</strong>' : '☁️ <strong>Google Sheets Sync Belum Dihubungkan</strong>'}</span>
+            ${
+              cloudConfigured && rows.length > 0
+                ? `<button type="button" id="modal-sync-all" class="btn btn-secondary btn-sm">☁️ Kirim ${rows.length} Data Lokal ke Sheets</button>`
+                : ''
+            }
+          </div>
+          ${
+            !cloudConfigured
+              ? `<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+                  <input id="modal-cloud-url" class="input-control" style="flex:1;min-width:180px;padding:8px 10px;font-size:0.82rem" type="url" value="${cloudUrl}" placeholder="Tempel Web App URL (/exec) Apps Script..." />
+                  <button type="button" id="modal-save-cloud" class="btn btn-primary btn-sm">Simpan URL</button>
+                </div>`
+              : ''
+          }
+          <div id="modal-sync-msg" style="margin-top:6px;color:var(--ink-muted)"></div>
+        </div>`;
+
       if (rows.length === 0) {
         dataModalBody.innerHTML = `
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
             <span style="font-size:0.84rem;color:var(--ink-muted)">🔓 Akses Tim Aktif</span>
             <button type="button" id="modal-lock" class="btn btn-secondary btn-sm">🔒 Kunci Akses</button>
           </div>
+          ${cloudSectionHtml}
           <p style="color:var(--ink-muted)">Belum ada sesi eksperimen yang tersimpan di browser ini. Jalankan <strong>Mode Eksperimen HCI</strong> untuk merekam partisipan.</p>`;
-        document.getElementById('modal-lock').addEventListener('click', () => {
-          TC.ResearcherAuth.lock();
-          updateBadge();
-          renderDataModal('');
-        });
+        bindModalCommonHandlers(rows);
         return;
       }
 
@@ -196,6 +217,7 @@
         .join('');
 
       dataModalBody.innerHTML = `
+        ${cloudSectionHtml}
         <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center">
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button type="button" id="modal-dl-csv" class="btn btn-primary btn-sm">⬇ Ekspor CSV</button>
@@ -220,11 +242,6 @@
 
       document.getElementById('modal-dl-csv').addEventListener('click', () => TC.Telemetry.DatasetStore.downloadCSV());
       document.getElementById('modal-dl-json').addEventListener('click', () => TC.Telemetry.DatasetStore.downloadJSON());
-      document.getElementById('modal-lock').addEventListener('click', () => {
-        TC.ResearcherAuth.lock();
-        updateBadge();
-        renderDataModal('');
-      });
       document.getElementById('modal-clear').addEventListener('click', () => {
         const confirmed = global.confirm(
           'Yakin ingin menghapus seluruh dataset eksperimen di perangkat ini? Tindakan ini tidak dapat dibatalkan.'
@@ -234,6 +251,43 @@
         updateBadge();
         renderDataModal('');
       });
+      bindModalCommonHandlers(rows);
+    }
+
+    function bindModalCommonHandlers(rows) {
+      const lockBtn = document.getElementById('modal-lock');
+      if (lockBtn) {
+        lockBtn.addEventListener('click', () => {
+          TC.ResearcherAuth.lock();
+          updateBadge();
+          renderDataModal('');
+        });
+      }
+      const saveCloudBtn = document.getElementById('modal-save-cloud');
+      if (saveCloudBtn) {
+        saveCloudBtn.addEventListener('click', () => {
+          const inp = document.getElementById('modal-cloud-url');
+          if (inp && TC.Telemetry.CloudSync) {
+            TC.Telemetry.CloudSync.setOverrideUrl(inp.value);
+            renderDataModal('');
+          }
+        });
+      }
+      const syncAllBtn = document.getElementById('modal-sync-all');
+      if (syncAllBtn) {
+        syncAllBtn.addEventListener('click', async () => {
+          const msgEl = document.getElementById('modal-sync-msg');
+          syncAllBtn.disabled = true;
+          if (msgEl) msgEl.textContent = '⏳ Mengirim data lokal ke Google Sheets…';
+          let sent = 0;
+          for (const rec of rows) {
+            const res = await TC.Telemetry.CloudSync.sendSession(rec);
+            if (res.status === 'sent') sent += 1;
+          }
+          if (msgEl) msgEl.textContent = `✓ Selesai mengirim ${sent}/${rows.length} sesi ke Google Sheets.`;
+          syncAllBtn.disabled = false;
+        });
+      }
     }
 
     btnHome.addEventListener('click', renderHome);

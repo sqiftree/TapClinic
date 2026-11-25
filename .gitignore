@@ -1,0 +1,27 @@
+# OS & Editor artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Local raw participant exports (keep sample_pilot_data.csv tracked)
+study/data/*_raw*.csv
+study/data/*_export*.csv
+study/data/*.json
+!study/data/sample_pilot_data.csv
+
+# Logs & temporary files
+*.log
+tmp/
+.tmp/

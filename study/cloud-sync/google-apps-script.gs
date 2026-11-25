@@ -1,14 +1,15 @@
 /**
- * TapClinic HCI Experiment — Write-Only Google Sheets Collector (Google Apps Script)
+ * TapClinic HCI Experiment — Write-Only Dual-Tab Google Sheets Collector
+ *
+ * Memisahkan hasil ke 2 sheet (tab) agar rapi:
+ * 1. "Dataset_Paper"        -> Khusus data numerik/statistik siap olah di Python (analyze_usability.py)
+ * 2. "Detail_Respon_Pasien" -> Log apa yang diketik di Varian A, apa yang di-tap di Varian B, & feedback
  *
  * Keamanan:
- * - Hanya mengimplementasikan doPost(e) untuk MENAMBAH baris baru (appendRow).
- * - Tidak ada endpoint baca (doGet) atau hapus data, sehingga partisipan/pengguna link
- *   tidak dapat melihat, mengunduh, atau menghapus isi Spreadsheet tim peneliti.
- * - Spreadsheet sumber cukup dibagikan secara privat hanya kepada 3 anggota tim inti.
+ * - Hanya mengimplementasikan doPost(e) (write-only). Tidak ada endpoint baca (doGet) atau hapus.
  */
 
-const COLUMNS = [
+const DATASET_COLUMNS = [
   'participant_id',
   'order',
   'age',
@@ -35,6 +36,47 @@ const COLUMNS = [
   'feedback'
 ];
 
+const DETAIL_COLUMNS = [
+  'participant_id',
+  'order',
+  'completed_at',
+  'scenario_a',
+  'va_lokasi_ketik',
+  'va_gejala_ketik',
+  'va_skala_nyeri',
+  'scenario_b',
+  'vb_ringkasan_tap',
+  'vb_region_ids',
+  'preference',
+  'feedback'
+];
+
+function getOrInitSheet(ss, name, headers, preferFirstSheet) {
+  let sheet = ss.getSheetByName(name);
+  if (!sheet && preferFirstSheet) {
+    sheet = ss.getSheets()[0];
+    if (sheet.getName() !== name && sheet.getName() === 'Sheet1') {
+      sheet.setName(name);
+    } else if (sheet.getName() !== name) {
+      sheet = ss.insertSheet(name);
+    }
+  }
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+  }
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(headers);
+    sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  } else if (sheet.getLastColumn() < headers.length) {
+    // Pastikan kolom baru (mis. feedback) ditambahkan di header jika sheet lama sudah terisi
+    for (let i = sheet.getLastColumn() + 1; i <= headers.length; i += 1) {
+      sheet.getRange(1, i).setValue(headers[i - 1]).setFontWeight('bold');
+    }
+  }
+  return sheet;
+}
+
 function doPost(e) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
@@ -44,17 +86,18 @@ function doPost(e) {
     const data = JSON.parse(raw);
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheets()[0];
+    const datasetSheet = getOrInitSheet(ss, 'Dataset_Paper', DATASET_COLUMNS, true);
+    const detailSheet = getOrInitSheet(ss, 'Detail_Respon_Pasien', DETAIL_COLUMNS, false);
 
-    // Inisialisasi header kolom secara otomatis pada baris pertama
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(COLUMNS);
-      sheet.getRange(1, 1, 1, COLUMNS.length).setFontWeight('bold');
-      sheet.setFrozenRows(1);
-    }
+    const datasetRow = DATASET_COLUMNS.map((col) =>
+      data[col] !== undefined && data[col] !== null ? data[col] : ''
+    );
+    const detailRow = DETAIL_COLUMNS.map((col) =>
+      data[col] !== undefined && data[col] !== null ? data[col] : ''
+    );
 
-    const row = COLUMNS.map((col) => (data[col] !== undefined && data[col] !== null ? data[col] : ''));
-    sheet.appendRow(row);
+    datasetSheet.appendRow(datasetRow);
+    detailSheet.appendRow(detailRow);
 
     return ContentService
       .createTextOutput(JSON.stringify({ ok: true, participant_id: data.participant_id || '' }))

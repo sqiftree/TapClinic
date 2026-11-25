@@ -275,10 +275,19 @@
           fb.addEventListener('input', (ev) => {
             state.feedback = ev.target.value;
           });
+          fb.addEventListener('change', (ev) => {
+            state.feedback = ev.target.value;
+          });
         }
       }
 
       container.querySelector('#exp-sus-next').addEventListener('click', () => {
+        if (susIndex === 1) {
+          const prefChecked = container.querySelector('input[name="exp-pref"]:checked');
+          if (prefChecked) state.preference = prefChecked.value;
+          const fbEl = container.querySelector('#exp-feedback');
+          if (fbEl) state.feedback = fbEl.value.trim();
+        }
         if (state.susAnswers[variant].some((v) => v === null)) {
           state.errorMsg = 'Mohon isi seluruh 10 butir kuesioner SUS sebelum melanjutkan.';
           render();
@@ -293,6 +302,20 @@
       });
     }
 
+    function formatTapEntriesSummary(entries) {
+      const list = Object.values(entries || {});
+      if (list.length === 0) return '';
+      return list
+        .map((e) => {
+          const reg = TC.Anatomy.ANATOMY_REGIONS[e.regionId];
+          const sens = TC.Icons.getSensationById(e.sensation);
+          const dur = TC.Icons.getDurationById(e.duration);
+          const locName = reg ? reg.labelId : e.regionId;
+          return `${locName} (${sens.labelId}, ${e.intensity}/10, ${dur.labelId})`;
+        })
+        .join('; ');
+    }
+
     function buildSessionRecord() {
       const p = state.participant;
       const resA = state.results.A;
@@ -300,6 +323,7 @@
       const susA = TC.Telemetry.calculateSUS(state.susAnswers.A);
       const susB = TC.Telemetry.calculateSUS(state.susAnswers.B);
       const hlMean = Math.round(((p.hl_1 + p.hl_2 + p.hl_3) / 3) * 100) / 100;
+      const tapEntries = resB.entries || {};
 
       return {
         participant_id: p.participant_id,
@@ -324,7 +348,12 @@
         regions_b_count: resB.regionsCount,
         sus_b: susB,
         preference: state.preference,
-        feedback: state.feedback,
+        feedback: String(state.feedback || '').trim(),
+        va_lokasi_ketik: String((resA.form && resA.form.primaryLocation) || '').trim(),
+        va_gejala_ketik: String((resA.form && resA.form.primarySensation) || '').trim(),
+        va_skala_nyeri: String((resA.form && resA.form.intensity) || '').trim(),
+        vb_ringkasan_tap: formatTapEntriesSummary(tapEntries),
+        vb_region_ids: Object.keys(tapEntries).join(', '),
         completed_at: new Date().toISOString()
       };
     }

@@ -31,7 +31,13 @@
     'regions_b_count',
     'sus_b',
     'preference',
-    'completed_at'
+    'completed_at',
+    'feedback',
+    'va_lokasi_ketik',
+    'va_gejala_ketik',
+    'va_skala_nyeri',
+    'vb_ringkasan_tap',
+    'vb_region_ids'
   ];
 
   class TaskTracker {

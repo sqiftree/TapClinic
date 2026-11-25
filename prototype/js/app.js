@@ -3,6 +3,61 @@
 
   const TC = (global.TapClinic = global.TapClinic || {});
 
+  const RESEARCHER_KEY = 'tapclinic_researcher_unlocked_v1';
+  const PIN_SHA256 = 'f250606cbf93fcb624edc81ec931918306e06e706e4903d2f031a4ad0144ddaf';
+  const PIN_FNV1A = 'bee19d02';
+
+  function fnv1aHex(str) {
+    let h = 0x811c9dc5;
+    const bytes = new TextEncoder().encode(str);
+    for (let i = 0; i < bytes.length; i += 1) {
+      h ^= bytes[i];
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
+  }
+
+  async function verifyPin(rawPin) {
+    const pin = String(rawPin || '').trim();
+    if (!pin) return false;
+    if (global.crypto && global.crypto.subtle && global.isSecureContext) {
+      const buf = await global.crypto.subtle.digest('SHA-256', new TextEncoder().encode(pin));
+      const hex = Array.from(new Uint8Array(buf))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      return hex === PIN_SHA256;
+    }
+    return fnv1aHex(pin) === PIN_FNV1A;
+  }
+
+  TC.ResearcherAuth = {
+    isUnlocked() {
+      try {
+        return global.sessionStorage.getItem(RESEARCHER_KEY) === '1';
+      } catch (_e) {
+        return false;
+      }
+    },
+    async unlock(pin) {
+      const ok = await verifyPin(pin);
+      if (ok) {
+        try {
+          global.sessionStorage.setItem(RESEARCHER_KEY, '1');
+        } catch (_e) {
+          // ignore
+        }
+      }
+      return ok;
+    },
+    lock() {
+      try {
+        global.sessionStorage.removeItem(RESEARCHER_KEY);
+      } catch (_e) {
+        // ignore
+      }
+    }
+  };
+
   document.addEventListener('DOMContentLoaded', () => {
     const mainEl = document.getElementById('app-main');
     const btnHome = document.getElementById('btn-home');
@@ -14,7 +69,8 @@
     const dataModalBody = document.getElementById('data-modal-body');
 
     function updateBadge() {
-      badgeCount.textContent = String(TC.Telemetry.DatasetStore.getAll().length);
+      const count = TC.Telemetry.DatasetStore.getAll().length;
+      badgeCount.textContent = TC.ResearcherAuth.isUnlocked() ? String(count) : '🔒';
     }
 
     function renderHome() {
@@ -41,7 +97,7 @@
             <div>
               <div class="hub-card-icon">⌨</div>
               <h2>Pembanding (Varian A)</h2>
-              <p>Formulir teks bertahap 5 langkah (1 pertanyaan per layar) sebagai kondisi kontrol pembanding untuk eksperimen kebergunaan.</p>
+              <p>Formulir teks bertahap 3 langkah (1 pertanyaan per layar) sebagai kondisi kontrol pembanding untuk eksperimen kebergunaan.</p>
             </div>
             <button type="button" id="go-demo-a" class="btn btn-secondary">Buka Demo Formulir Teks →</button>
           </article>
@@ -71,11 +127,53 @@
       });
     }
 
-    function renderDataModal() {
+    function renderDataModal(authError) {
+      if (!TC.ResearcherAuth.isUnlocked()) {
+        dataModalBody.innerHTML = `
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <div style="background:var(--surface-tint);border:1px solid #bae6fd;border-radius:14px;padding:12px 14px;font-size:0.86rem;color:var(--ink-muted);line-height:1.5">
+              <strong>🔒 Akses Khusus Tim Peneliti</strong><br/>
+              Data eksperimen disimpan secara lokal di perangkat ini (tidak tercampur antar-pengguna). Masukkan PIN tim peneliti untuk melihat, mengekspor, atau menghapus dataset.
+            </div>
+            <form id="researcher-unlock-form" style="display:flex;flex-direction:column;gap:10px">
+              <div class="form-group" style="margin-bottom:0">
+                <label for="researcher-pin-input">PIN Tim Peneliti</label>
+                <input id="researcher-pin-input" class="input-control" type="password" autocomplete="off" placeholder="Masukkan PIN tim..." required />
+              </div>
+              ${authError ? `<p class="field-error" style="margin:0">${authError}</p>` : ''}
+              <button type="submit" class="btn btn-primary">Buka Akses Tim</button>
+            </form>
+          </div>`;
+
+        const form = document.getElementById('researcher-unlock-form');
+        const pinInput = document.getElementById('researcher-pin-input');
+        pinInput.focus();
+        form.addEventListener('submit', async (ev) => {
+          ev.preventDefault();
+          const ok = await TC.ResearcherAuth.unlock(pinInput.value);
+          if (ok) {
+            updateBadge();
+            renderDataModal('');
+          } else {
+            renderDataModal('PIN tidak sesuai. Silakan periksa kembali dengan tim peneliti.');
+          }
+        });
+        return;
+      }
+
       const rows = TC.Telemetry.DatasetStore.getAll();
       if (rows.length === 0) {
         dataModalBody.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+            <span style="font-size:0.84rem;color:var(--ink-muted)">🔓 Akses Tim Aktif</span>
+            <button type="button" id="modal-lock" class="btn btn-secondary btn-sm">🔒 Kunci Akses</button>
+          </div>
           <p style="color:var(--ink-muted)">Belum ada sesi eksperimen yang tersimpan di browser ini. Jalankan <strong>Mode Eksperimen HCI</strong> untuk merekam partisipan.</p>`;
+        document.getElementById('modal-lock').addEventListener('click', () => {
+          TC.ResearcherAuth.lock();
+          updateBadge();
+          renderDataModal('');
+        });
         return;
       }
 
@@ -98,10 +196,13 @@
         .join('');
 
       dataModalBody.innerHTML = `
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" id="modal-dl-csv" class="btn btn-primary btn-sm">⬇ Ekspor CSV</button>
-          <button type="button" id="modal-dl-json" class="btn btn-secondary btn-sm">⬇ Ekspor JSON</button>
-          <button type="button" id="modal-clear" class="btn btn-danger-ghost btn-sm">🗑 Hapus Semua</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" id="modal-dl-csv" class="btn btn-primary btn-sm">⬇ Ekspor CSV</button>
+            <button type="button" id="modal-dl-json" class="btn btn-secondary btn-sm">⬇ Ekspor JSON</button>
+            <button type="button" id="modal-clear" class="btn btn-danger-ghost btn-sm">🗑 Hapus Semua</button>
+          </div>
+          <button type="button" id="modal-lock" class="btn btn-secondary btn-sm">🔒 Kunci Akses</button>
         </div>
         <div class="data-table-wrap">
           <table class="data-table">
@@ -119,10 +220,19 @@
 
       document.getElementById('modal-dl-csv').addEventListener('click', () => TC.Telemetry.DatasetStore.downloadCSV());
       document.getElementById('modal-dl-json').addEventListener('click', () => TC.Telemetry.DatasetStore.downloadJSON());
+      document.getElementById('modal-lock').addEventListener('click', () => {
+        TC.ResearcherAuth.lock();
+        updateBadge();
+        renderDataModal('');
+      });
       document.getElementById('modal-clear').addEventListener('click', () => {
+        const confirmed = global.confirm(
+          'Yakin ingin menghapus seluruh dataset eksperimen di perangkat ini? Tindakan ini tidak dapat dibatalkan.'
+        );
+        if (!confirmed) return;
         TC.Telemetry.DatasetStore.clear();
         updateBadge();
-        renderDataModal();
+        renderDataModal('');
       });
     }
 

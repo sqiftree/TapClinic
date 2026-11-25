@@ -338,11 +338,14 @@
 
     function renderDone() {
       const r = state.record || buildSessionRecord();
+      const isUnlocked = Boolean(TC.ResearcherAuth && TC.ResearcherAuth.isUnlocked());
       container.innerHTML = `
         <div class="card va-card">
           <h2 style="margin-top:0">✓ Sesi Eksperimen Selesai (${r.participant_id})</h2>
           <p style="color:var(--ink-muted);font-size:0.9rem;margin-top:0">
-            Data telah otomatis disimpan ke penyimpanan lokal browser (urutan <strong>${r.order}</strong>).
+            Terima kasih atas partisipasi Anda! Data sesi ini telah tersimpan secara lokal di perangkat (urutan <strong>${r.order}</strong>).${
+              isUnlocked ? '' : ' Silakan kembalikan perangkat kepada tim peneliti.'
+            }
           </p>
 
           <div class="metrics-compare-grid">
@@ -361,15 +364,21 @@
           </div>
 
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
-            <button type="button" id="exp-dl-csv" class="btn btn-primary">⬇ Unduh CSV (Untuk Python)</button>
-            <button type="button" id="exp-dl-json" class="btn btn-secondary">⬇ Unduh JSON</button>
-            <button type="button" id="exp-next-p" class="btn btn-secondary">＋ Partisipan Berikutnya</button>
+            ${
+              isUnlocked
+                ? `<button type="button" id="exp-dl-csv" class="btn btn-primary">⬇ Unduh CSV (Untuk Python)</button>
+                   <button type="button" id="exp-dl-json" class="btn btn-secondary">⬇ Unduh JSON</button>`
+                : ''
+            }
+            <button type="button" id="exp-next-p" class="btn btn-primary">＋ Partisipan Berikutnya</button>
             <button type="button" id="exp-home" class="btn btn-secondary">⌂ Beranda</button>
           </div>
         </div>`;
 
-      container.querySelector('#exp-dl-csv').addEventListener('click', () => TC.Telemetry.DatasetStore.downloadCSV());
-      container.querySelector('#exp-dl-json').addEventListener('click', () => TC.Telemetry.DatasetStore.downloadJSON());
+      const dlCsv = container.querySelector('#exp-dl-csv');
+      const dlJson = container.querySelector('#exp-dl-json');
+      if (dlCsv) dlCsv.addEventListener('click', () => TC.Telemetry.DatasetStore.downloadCSV());
+      if (dlJson) dlJson.addEventListener('click', () => TC.Telemetry.DatasetStore.downloadJSON());
       container.querySelector('#exp-next-p').addEventListener('click', () => mountExperiment(container, onExit, onDatasetUpdated));
       container.querySelector('#exp-home').addEventListener('click', onExit);
     }

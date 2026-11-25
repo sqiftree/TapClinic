@@ -5,8 +5,8 @@
   const STORAGE_KEY = 'tapclinic_hci_sessions_v1';
   const CLOUD_URL_OVERRIDE_KEY = 'tapclinic_cloud_url_v1';
 
-  // Isi dengan Web App URL (/exec) dari Google Apps Script agar semua HP otomatis kirim ke Sheets tim
-  const CLOUD_SYNC_URL = '';
+  // Web App URL (/exec) Google Apps Script (write-only) untuk sinkronisasi otomatis ke Sheets tim
+  const CLOUD_SYNC_URL = 'https://script.google.com/macros/s/AKfycbz6d8N47tXtBb2g5yQ50zB28l5vpNIq9Ip9wc8I-aHl882MoX15yasndiGUAheKoyJj5Q/exec';
 
   const CSV_COLUMNS = [
     'participant_id',

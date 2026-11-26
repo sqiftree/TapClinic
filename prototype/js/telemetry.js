@@ -6,7 +6,8 @@
   const CLOUD_URL_OVERRIDE_KEY = 'tapclinic_cloud_url_v1';
 
   // Web App URL (/exec) Google Apps Script (write-only) untuk sinkronisasi otomatis ke Sheets tim
-  const CLOUD_SYNC_URL = 'https://script.google.com/macros/s/AKfycbz6d8N47tXtBb2g5yQ50zB28l5vpNIq9Ip9wc8I-aHl882MoX15yasndiGUAheKoyJj5Q/exec';
+  const CLOUD_SYNC_URL =
+    'https://script.google.com/macros/s/AKfycbz6d8N47tXtBb2g5yQ50zB28l5vpNIq9Ip9wc8I-aHl882MoX15yasndiGUAheKoyJj5Q/exec';
 
   const CSV_COLUMNS = [
     'participant_id',
@@ -39,6 +40,47 @@
     'vb_ringkasan_tap',
     'vb_region_ids'
   ];
+
+  // Fallback memori jika localStorage diblokir (mis. mode privat ketat)
+  let memorySessions = [];
+
+  function getUrlParams() {
+    try {
+      const params = new URLSearchParams(global.location.search || '');
+      const rawPid = (params.get('pid') || '').trim();
+      const rawOrder = (params.get('order') || '').trim().toUpperCase();
+      return {
+        pid: rawPid ? rawPid.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) : '',
+        order: rawOrder === 'AB' || rawOrder === 'BA' ? rawOrder : ''
+      };
+    } catch (_e) {
+      return { pid: '', order: '' };
+    }
+  }
+
+  function randomInt(maxExclusive) {
+    if (global.crypto && typeof global.crypto.getRandomValues === 'function') {
+      const arr = new Uint32Array(1);
+      global.crypto.getRandomValues(arr);
+      return arr[0] % maxExclusive;
+    }
+    return Math.floor(Math.random() * maxExclusive);
+  }
+
+  function generateUniqueParticipantId(existingIds) {
+    // Hindari karakter ambigu (0, O, 1, I) agar mudah dibaca di tabel/CSV
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const used = new Set((existingIds || []).map((id) => String(id).toUpperCase()));
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      let code = '';
+      for (let i = 0; i < 4; i += 1) {
+        code += chars[randomInt(chars.length)];
+      }
+      const candidate = 'P-' + code;
+      if (!used.has(candidate)) return candidate;
+    }
+    return 'P-' + String(Date.now()).slice(-5);
+  }
 
   class TaskTracker {
     constructor(variantName) {
@@ -101,7 +143,7 @@
 
   function escapeCsvCell(val) {
     const str = val === null || val === undefined ? '' : String(val);
-    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
       return '"' + str.replace(/"/g, '""') + '"';
     }
     return str;
@@ -123,32 +165,82 @@
     getAll() {
       try {
         const raw = global.localStorage.getItem(STORAGE_KEY);
-        if (!raw) return [];
+        if (!raw) return memorySessions.slice();
         const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
+        if (Array.isArray(parsed)) {
+          memorySessions = parsed;
+          return parsed;
+        }
+        return memorySessions.slice();
       } catch (_err) {
-        return [];
+        return memorySessions.slice();
       }
     },
 
     addSession(record) {
       const list = this.getAll();
       list.push(record);
-      global.localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+      memorySessions = list;
+      try {
+        global.localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+      } catch (_err) {
+        // Tetap aman di memorySessions jika localStorage penuh/diblokir
+      }
       return list.length;
     },
 
     clear() {
-      global.localStorage.removeItem(STORAGE_KEY);
+      memorySessions = [];
+      try {
+        global.localStorage.removeItem(STORAGE_KEY);
+      } catch (_err) {
+        // ignore
+      }
     },
 
     getNextParticipantId() {
-      const nextNum = this.getAll().length + 1;
-      return 'P' + String(nextNum).padStart(2, '0');
+      const rows = this.getAll();
+      const usedIds = rows.map((r) => String(r.participant_id || ''));
+      const { pid } = getUrlParams();
+
+      // Prioritaskan parameter ?pid=... jika belum terpakai di perangkat ini
+      if (pid && !usedIds.some((id) => id.toUpperCase() === pid.toUpperCase())) {
+        return pid;
+      }
+
+      // Mode 1 perangkat peneliti: jika ID terakhir berpola P01, P02, ... lanjutkan berurutan
+      if (rows.length > 0) {
+        const lastId = String(rows[rows.length - 1].participant_id || '').trim();
+        const match = /^P(\d+)$/i.exec(lastId);
+        if (match) {
+          const width = Math.max(2, match[1].length);
+          let nextNum = Number(match[1]) + 1;
+          let candidate = 'P' + String(nextNum).padStart(width, '0');
+          while (usedIds.some((id) => id.toUpperCase() === candidate.toUpperCase())) {
+            nextNum += 1;
+            candidate = 'P' + String(nextNum).padStart(width, '0');
+          }
+          return candidate;
+        }
+      }
+
+      // Mode sebar link lintas HP: hasilkan ID anonim unik agar tidak bentrok P01 di Sheets
+      return generateUniqueParticipantId(usedIds);
     },
 
     getNextOrder() {
-      return this.getAll().length % 2 === 0 ? 'AB' : 'BA';
+      const rows = this.getAll();
+      const { order } = getUrlParams();
+
+      // Pada sesi pertama di perangkat, ikuti parameter ?order=AB|BA jika ada
+      if (rows.length === 0) {
+        if (order) return order;
+        return randomInt(2) === 0 ? 'AB' : 'BA';
+      }
+
+      // Pada sesi lanjutan di perangkat yang sama, selalu balik dari sesi terakhir agar seimbang
+      const lastOrder = String(rows[rows.length - 1].order || '').toUpperCase();
+      return lastOrder === 'AB' ? 'BA' : 'AB';
     },
 
     toCSV() {
@@ -205,6 +297,9 @@
       const url = this.getUrl();
       if (!url) {
         return { status: 'not_configured' };
+      }
+      if (global.navigator && global.navigator.onLine === false) {
+        return { status: 'failed', error: 'offline' };
       }
       try {
         await global.fetch(url, {

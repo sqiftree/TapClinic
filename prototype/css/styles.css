@@ -1129,3 +1129,46 @@ table.data-table th {
   background: var(--surface-soft);
   font-weight: 700;
 }
+/* Optimasi ukuran area sentuh Variant B di layar HP */
+@media (max-width: 520px) {
+  .app-main {
+    padding: 8px 6px;
+  }
+
+  .phone-card {
+    padding: 14px 10px;
+    border-radius: 18px;
+    gap: 10px;
+  }
+
+  .step-title {
+    font-size: 1.16rem;
+  }
+
+  .b1-dual-bodies {
+    gap: 6px;
+  }
+
+  .b1-body-slot {
+    padding: 6px 2px 4px;
+    border-radius: 12px;
+  }
+
+  .body-svg-wrap {
+    max-width: 100%;
+  }
+
+  .body-svg {
+    max-height: 62dvh;
+  }
+
+  .pain-range::-webkit-slider-thumb {
+    width: 32px;
+    height: 32px;
+  }
+
+  .pain-range::-moz-range-thumb {
+    width: 32px;
+    height: 32px;
+  }
+}

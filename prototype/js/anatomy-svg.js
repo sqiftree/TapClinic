@@ -450,7 +450,7 @@
     const ariaSide = side === 'front' ? 'Anatomi Tubuh Tampak Depan' : 'Anatomi Tubuh Tampak Belakang';
 
     return `
-      <svg class="body-svg" viewBox="0 0 320 680" data-body-side="${side}" aria-label="${ariaSide}">
+      <svg class="body-svg" viewBox="18 10 284 660" data-body-side="${side}" aria-label="${ariaSide}">
         <defs>
           <clipPath id="${uid}">
             <path d="${BODY_OUTLINE_PATH}"></path>

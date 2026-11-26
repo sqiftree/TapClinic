@@ -3,18 +3,57 @@
 
   const TC = (global.TapClinic = global.TapClinic || {});
 
+  function createEmptyDraft() {
+    return {
+      sensation: null,
+      intensity: null,
+      duration: null
+    };
+  }
+
+  function renderPainTicksHtml(currentLevel) {
+    const ticks = [1, 3, 5, 7, 10];
+    const hasValue = currentLevel !== null && currentLevel !== undefined;
+    const nearest = hasValue
+      ? ticks.reduce(
+          (best, t) => (Math.abs(t - currentLevel) < Math.abs(best - currentLevel) ? t : best),
+          ticks[0]
+        )
+      : null;
+
+    return ticks
+      .map((val) => {
+        const active = hasValue && Math.abs(Number(currentLevel) - val) <= 1 && nearest === val;
+        return `
+          <button type="button" class="b3-tick-btn ${active ? 'active' : ''}" data-tick-level="${val}" aria-label="Pilih skala nyeri ${val}">
+            ${TC.Icons.getPainFaceSvg(val, 28)}
+            <span>${val}</span>
+          </button>`;
+      })
+      .join('');
+  }
+
+  function renderNeutralFacePlaceholder(size) {
+    const px = size || 92;
+    return `
+      <svg viewBox="0 0 48 48" width="${px}" height="${px}" aria-hidden="true">
+        <circle cx="24" cy="24" r="21" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="2.4" stroke-dasharray="4 3"/>
+        <text x="24" y="29" text-anchor="middle" font-size="16" font-weight="800" fill="#94a3b8" font-family="system-ui, sans-serif">?</text>
+      </svg>`;
+  }
+
   function mountVariantB(container, options) {
     const opts = options || {};
     const onComplete = typeof opts.onComplete === 'function' ? opts.onComplete : null;
     const onExit = typeof opts.onExit === 'function' ? opts.onExit : null;
     const tracker = new TC.Telemetry.TaskTracker('variant_b');
 
-    // Step-based Figma PROGRES-IMK flow: b1 -> b2 -> b3 -> b4 -> b5 (EMR demo)
+    // Alur bertahap: b1 -> b2 -> b3 -> b4 -> b5 (demo EMR)
     const state = {
       step: 'b1', // 'b1' | 'b2' | 'b3' | 'b4' | 'b5'
       viewMode: 'dual', // 'dual' | 'front' | 'back'
       activeRegionId: null,
-      draft: { sensation: 'throbbing', intensity: 7, duration: 'today' },
+      draft: createEmptyDraft(),
       entries: {},
       lastMetrics: null
     };
@@ -23,14 +62,27 @@
       const existing = state.entries[regionId];
       state.activeRegionId = regionId;
       state.draft = existing
-        ? { ...existing }
-        : { sensation: 'throbbing', intensity: 7, duration: 'today' };
+        ? {
+            sensation: existing.sensation,
+            intensity: Number(existing.intensity),
+            duration: existing.duration
+          }
+        : createEmptyDraft();
       tracker.log('tap_region', regionId);
       render();
     }
 
+    function isDraftComplete() {
+      return Boolean(
+        state.activeRegionId &&
+          state.draft.sensation &&
+          state.draft.intensity !== null &&
+          state.draft.duration
+      );
+    }
+
     function commitDraftToEntries() {
-      if (!state.activeRegionId) return;
+      if (!isDraftComplete()) return false;
       state.entries[state.activeRegionId] = {
         regionId: state.activeRegionId,
         sensation: state.draft.sensation,
@@ -38,6 +90,7 @@
         duration: state.draft.duration
       };
       tracker.log('save_region', state.activeRegionId);
+      return true;
     }
 
     function submitToDoctor() {
@@ -145,6 +198,7 @@
 
     function renderStepB2() {
       const meta = TC.Anatomy.ANATOMY_REGIONS[state.activeRegionId];
+      const hasSensation = Boolean(state.draft.sensation);
       const cardsHtml = TC.Icons.SENSATIONS.map((s) => {
         const active = state.draft.sensation === s.id ? 'active' : '';
         return `
@@ -169,13 +223,18 @@
 
           <div class="wizard-actions">
             <button type="button" id="b2-back" class="btn btn-secondary">← Kembali</button>
-            <button type="button" id="b2-next" class="btn btn-primary" style="flex:1">Lanjut ke Skala Nyeri →</button>
+            <button type="button" id="b2-next" class="btn btn-primary" style="flex:1" ${hasSensation ? '' : 'disabled'}>
+              Lanjut ke Skala Nyeri →
+            </button>
           </div>
         </div>`;
     }
 
     function renderStepB3() {
-      const sev = TC.Icons.getSeverityBucket(state.draft.intensity);
+      const hasIntensity = state.draft.intensity !== null;
+      const sev = hasIntensity ? TC.Icons.getSeverityBucket(state.draft.intensity) : null;
+      const canFinishStep = hasIntensity && Boolean(state.draft.duration);
+
       const durHtml = TC.Icons.DURATIONS.map((d) => {
         const active = state.draft.duration === d.id ? 'active' : '';
         return `
@@ -193,28 +252,44 @@
           </div>
 
           <div class="b3-face-stage">
-            <div id="b3-face-big">${TC.Icons.getPainFaceSvg(state.draft.intensity, 92)}</div>
+            <div id="b3-face-big">
+              ${hasIntensity ? TC.Icons.getPainFaceSvg(state.draft.intensity, 92) : renderNeutralFacePlaceholder(92)}
+            </div>
             <div class="b3-score-readout">
-              <span class="big" id="b3-score-num">${state.draft.intensity}</span>
+              <span class="big" id="b3-score-num">${hasIntensity ? state.draft.intensity : '—'}</span>
               <span class="denom">/10</span>
             </div>
-            <span class="sev-pill" id="b3-sev-pill" style="background:${sev.bg};color:${sev.color}">${sev.labelId}</span>
+            <span class="sev-pill" id="b3-sev-pill" style="background:${sev ? sev.bg : '#f1f5f9'};color:${sev ? sev.color : '#64748b'}">
+              ${sev ? sev.labelId : 'Geser skala atau ketuk ekspresi di bawah'}
+            </span>
           </div>
 
-          <input id="b3-pain-range" class="pain-range" type="range" min="1" max="10" step="1" value="${state.draft.intensity}" aria-label="Skala intensitas nyeri 1 sampai 10" />
+          <input
+            id="b3-pain-range"
+            class="pain-range"
+            type="range"
+            min="1"
+            max="10"
+            step="1"
+            value="${hasIntensity ? state.draft.intensity : 5}"
+            style="opacity:${hasIntensity ? '1' : '0.65'}"
+            aria-label="Skala intensitas nyeri 1 sampai 10"
+          />
 
           <div class="b3-ticks-row" id="b3-ticks">
-            ${TC.Icons.getMiniPainTicksHtml(state.draft.intensity)}
+            ${renderPainTicksHtml(state.draft.intensity)}
           </div>
 
           <div>
-            <div style="font-size:0.8rem;font-weight:700;color:var(--ink-muted);margin-bottom:6px">Sejak kapan dirasakan?</div>
+            <div style="font-size:0.8rem;font-weight:700;color:var(--ink-muted);margin-bottom:6px">Sejak kapan dirasakan? (Wajib pilih)</div>
             <div class="duration-grid">${durHtml}</div>
           </div>
 
           <div class="wizard-actions">
             <button type="button" id="b3-back" class="btn btn-secondary">← Kembali</button>
-            <button type="button" id="b3-next" class="btn btn-primary" style="flex:1">Lihat Ringkasan Keluhan →</button>
+            <button type="button" id="b3-next" class="btn btn-primary" style="flex:1" ${canFinishStep ? '' : 'disabled'}>
+              Lihat Ringkasan Keluhan →
+            </button>
           </div>
         </div>`;
     }
@@ -263,12 +338,12 @@
         <div class="phone-card">
           <div>
             <span class="step-kicker">TapClinic • Ringkasan</span>
-            <h2 class="step-title">Ringkasan Keluhan Anda</h2>
+            <h2 class="step-title">Ringkasan Keluhan Anda (${list.length})</h2>
           </div>
 
           ${cardsHtml}
 
-          <button type="button" id="b4-add-more" class="btn btn-secondary btn-full btn-sm">
+          <button type="button" id="b4-add-more" class="btn btn-secondary btn-full">
             ＋ Tambah Lokasi Nyeri Lain
           </button>
 
@@ -279,8 +354,8 @@
           <button type="button" id="b4-submit" class="btn btn-primary btn-full">
             Kirim ke Ruang Dokter
           </button>
-          <button type="button" id="b4-edit-last" class="btn btn-secondary btn-full">
-            Ubah Jawaban
+          <button type="button" id="b4-edit-last" class="btn btn-secondary btn-full btn-sm">
+            Ubah Jawaban Terakhir
           </button>
         </div>`;
     }
@@ -344,7 +419,7 @@
                 <strong>Ringkasan Sistem:</strong> ${autoSentence}
               </div>
               <div style="font-size:0.8rem;color:var(--ink-subtle);margin-top:10px">
-                Telemetri Demo: ${state.lastMetrics.durationSec} detik • Error sentuh: ${state.lastMetrics.errorCount} • Interaksi: ${state.lastMetrics.interactionCount}
+                Telemetri Demo: ${state.lastMetrics.durationSec} detik • Error sentuh/revisi: ${state.lastMetrics.errorCount} • Interaksi: ${state.lastMetrics.interactionCount}
               </div>
               <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
                 <button type="button" id="b5-restart" class="btn btn-secondary btn-sm">↻ Coba Lagi</button>
@@ -388,6 +463,7 @@
         if (nextBtn) {
           nextBtn.addEventListener('click', () => {
             if (!state.activeRegionId) return;
+            tracker.log('step_next', 'b1_to_b2');
             state.step = 'b2';
             render();
           });
@@ -396,6 +472,7 @@
         const sumBtn = container.querySelector('#b1-to-summary');
         if (sumBtn) {
           sumBtn.addEventListener('click', () => {
+            tracker.log('step_next', 'b1_to_b4');
             state.step = 'b4';
             render();
           });
@@ -412,11 +489,13 @@
           });
         });
         container.querySelector('#b2-back').addEventListener('click', () => {
-          tracker.recordError('cancel_region', state.activeRegionId);
+          tracker.recordError('back_step', 'b2_to_b1');
           state.step = 'b1';
           render();
         });
         container.querySelector('#b2-next').addEventListener('click', () => {
+          if (!state.draft.sensation) return;
+          tracker.log('step_next', 'b2_to_b3');
           state.step = 'b3';
           render();
         });
@@ -425,6 +504,14 @@
 
       if (state.step === 'b3') {
         const rangeEl = container.querySelector('#b3-pain-range');
+        const nextBtn = container.querySelector('#b3-next');
+
+        const syncNextButton = () => {
+          if (nextBtn) {
+            nextBtn.disabled = !(state.draft.intensity !== null && Boolean(state.draft.duration));
+          }
+        };
+
         const syncIntensityUi = (val) => {
           state.draft.intensity = val;
           const sev = TC.Icons.getSeverityBucket(val);
@@ -432,6 +519,7 @@
           const scoreNum = container.querySelector('#b3-score-num');
           const sevPill = container.querySelector('#b3-sev-pill');
           const ticksWrap = container.querySelector('#b3-ticks');
+          if (rangeEl) rangeEl.style.opacity = '1';
           if (faceBig) faceBig.innerHTML = TC.Icons.getPainFaceSvg(val, 92);
           if (scoreNum) scoreNum.textContent = String(val);
           if (sevPill) {
@@ -440,9 +528,10 @@
             sevPill.style.color = sev.color;
           }
           if (ticksWrap) {
-            ticksWrap.innerHTML = TC.Icons.getMiniPainTicksHtml(val);
+            ticksWrap.innerHTML = renderPainTicksHtml(val);
             bindTickButtons();
           }
+          syncNextButton();
         };
 
         const bindTickButtons = () => {
@@ -458,7 +547,17 @@
 
         if (rangeEl) {
           rangeEl.addEventListener('input', (ev) => syncIntensityUi(Number(ev.target.value)));
-          rangeEl.addEventListener('change', () => tracker.log('set_intensity', state.draft.intensity));
+          rangeEl.addEventListener('change', (ev) => {
+            syncIntensityUi(Number(ev.target.value));
+            tracker.log('set_intensity', state.draft.intensity);
+          });
+          // Menangani ketukan tepat pada nilai awal slider (5) saat intensity masih null
+          rangeEl.addEventListener('pointerup', () => {
+            if (state.draft.intensity === null) {
+              syncIntensityUi(Number(rangeEl.value));
+              tracker.log('set_intensity', state.draft.intensity);
+            }
+          });
         }
         bindTickButtons();
 
@@ -471,11 +570,13 @@
         });
 
         container.querySelector('#b3-back').addEventListener('click', () => {
+          tracker.recordError('back_step', 'b3_to_b2');
           state.step = 'b2';
           render();
         });
         container.querySelector('#b3-next').addEventListener('click', () => {
-          commitDraftToEntries();
+          if (!commitDraftToEntries()) return;
+          tracker.log('step_next', 'b3_to_b4');
           state.step = 'b4';
           render();
         });
@@ -486,8 +587,13 @@
         container.querySelectorAll('[data-edit-region]').forEach((btn) => {
           btn.addEventListener('click', () => {
             const rid = btn.getAttribute('data-edit-region');
+            tracker.recordError('edit_region', rid);
             state.activeRegionId = rid;
-            state.draft = { ...state.entries[rid] };
+            state.draft = {
+              sensation: state.entries[rid].sensation,
+              intensity: Number(state.entries[rid].intensity),
+              duration: state.entries[rid].duration
+            };
             state.step = 'b2';
             render();
           });
@@ -496,19 +602,30 @@
           btn.addEventListener('click', () => {
             const rid = btn.getAttribute('data-del-region');
             delete state.entries[rid];
-            tracker.log('delete_region', rid);
+            tracker.recordError('delete_region', rid);
             render();
           });
         });
         container.querySelector('#b4-add-more').addEventListener('click', () => {
+          tracker.log('add_more_region', null);
           state.activeRegionId = null;
+          state.draft = createEmptyDraft();
           state.step = 'b1';
           render();
         });
         container.querySelector('#b4-submit').addEventListener('click', submitToDoctor);
         container.querySelector('#b4-edit-last').addEventListener('click', () => {
           const keys = Object.keys(state.entries);
-          state.activeRegionId = keys[keys.length - 1] || null;
+          const lastKey = keys[keys.length - 1] || null;
+          tracker.recordError('edit_last_region', lastKey);
+          state.activeRegionId = lastKey;
+          state.draft = lastKey
+            ? {
+                sensation: state.entries[lastKey].sensation,
+                intensity: Number(state.entries[lastKey].intensity),
+                duration: state.entries[lastKey].duration
+              }
+            : createEmptyDraft();
           state.step = 'b1';
           render();
         });
